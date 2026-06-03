@@ -1,0 +1,22 @@
+{
+    "name": "entm-core",
+    "version": "1.0.0",
+    "description": "Entity Component System for FiveM",
+    "scripts": {
+        "build":     "npm run clean && node build/bundle.js",
+        "watch":     "cross-env IS_WATCH_MODE=1 node build/bundle.js",
+        "typecheck": "tsc --noEmit -p src/client/tsconfig.json && tsc --noEmit -p src/server/tsconfig.json",
+        "clean":     "rimraf dist"
+    },
+    "license": "ISC",
+    "devDependencies": {
+        "@ratprez/entm":     "^0.1.0",
+        "@citizenfx/client": "^2.0.6063-1",
+        "@citizenfx/server": "^2.0.6063-1",
+        "@types/node":       "^20.10.5",
+        "cross-env":         "^7.0.3",
+        "esbuild":           "^0.19.10",
+        "rimraf":            "^5.0.1",
+        "typescript":        "^5.3.3"
+    }
+}
