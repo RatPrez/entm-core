@@ -88,7 +88,6 @@ import { Component, shared } from "@ratprez/entm";
 
 @shared
 export class Health extends Component {
-    readonly sType = "health" as const;
     current: number;
     max:     number;
 
