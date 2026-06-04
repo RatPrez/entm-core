@@ -1,8 +1,5 @@
-import { World, System, View, ComponentPool, Profiler,
-         vec3, vec3Add, vec3Sub, vec3Scale, vec3Len,
-         Ped, Vehicle, shared } from "@ratprez/entm";
-
-const Delay = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
+import { World, System, View, ComponentPool, Component, Profiler, Vec3, SPed, SVehicle, shared, sync, ignore } from "@ratprez/entm";
+import { SyncSystem } from "./systems/SyncSystem";
 
 const k_fixedTimestep = 1.0 / 30.0;
 const k_maxDelta      = 0.25;
@@ -10,10 +7,10 @@ const g_world         = new World();
 
 // expose entm-base classes for loaded modules
 (globalThis as any).__entm = {
-    World, System, View, ComponentPool, Profiler,
-    vec3, vec3Add, vec3Sub, vec3Scale, vec3Len,
-    Ped, Vehicle, shared,
+    World, System, View, ComponentPool, Profiler, Component,
+    Vec3, SPed, SVehicle, shared, sync, ignore
 };
+console.log('[entm-core] globalThis.__entm.shared:', typeof (globalThis as any).__entm.shared);
 
 // --- module registry ---
 
@@ -55,7 +52,7 @@ function tryLoadModule(resourceName: string, code: string): boolean {
             const origCreateEntity = g_world.createEntity.bind(g_world);
 
             (g_world as any).addSystem    = (s: System) => { record.systems.push(s.constructor as any); origAddSystem(s); };
-            (g_world as any).createEntity = () => { const id = origCreateEntity(); record.entities.push(id); return id; };
+            (g_world as any).createEntity = (...args: any[]) => { const id = origCreateEntity(...args); record.entities.push(id); return id; };
 
             (initFn as Function)(g_world);
 
@@ -108,18 +105,29 @@ function loadModule(resourceName: string): void {
     }
 }
 
+function registerMainSystems() {
+    g_world.addSystem(new SyncSystem(g_world));
+}
+
+// --- exports ---
+
+exports("registerModule", (resourceName: string) => loadModule(resourceName));
+
+
 // --- main ---
 
-async function gameLoop(): Promise<void> {
-    let lastTime         = GetGameTimer();
+{
+    registerMainSystems();
+
+    let lastTime  = GetGameTimer();
     let fixedAccumulator = 0.0;
 
-    while (true) {
+    setTick(() => {
         const now     = GetGameTimer();
         let deltaTime = (now - lastTime) / 1000.0;
         lastTime      = now;
 
-        deltaTime        = Math.min(deltaTime, k_maxDelta);
+        deltaTime         = Math.min(deltaTime, k_maxDelta);
         fixedAccumulator += deltaTime;
 
         while (fixedAccumulator >= k_fixedTimestep) {
@@ -128,12 +136,5 @@ async function gameLoop(): Promise<void> {
         }
 
         g_world.update(deltaTime);
-        await Delay(0);
-    }
+    });
 }
-
-// --- exports ---
-
-exports("registerModule", (resourceName: string) => loadModule(resourceName));
-
-gameLoop();

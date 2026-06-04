@@ -1,11 +1,7 @@
-import { World, System, View, ComponentPool, Profiler,
-         vec3, vec3Add, vec3Sub, vec3Scale, vec3Len,
-         Ped, Vehicle, shared } from "@ratprez/entm";
-
-import { EntitySystem } from "./systems/fivem/EntitySystem";
+import { World, System, View, ComponentPool, Profiler, Component, Vec3, CPed, CVehicle, shared, sync, ignore } from "@ratprez/entm";
+import { EntitySystem } from "./systems/EntitySystem";
 import { DebugSystem }  from "./systems/DebugSystem";
-
-const Delay = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
+import { SyncSystem } from "./systems/SyncSystem";
 
 const k_fixedTimestep = 1.0 / 30.0;
 const k_maxDelta      = 0.25;
@@ -13,9 +9,8 @@ const g_world         = new World();
 
 // expose entm-base classes for loaded modules
 (globalThis as any).__entm = {
-    World, System, View, ComponentPool, Profiler,
-    vec3, vec3Add, vec3Sub, vec3Scale, vec3Len,
-    Ped, Vehicle, shared,
+    World, System, View, ComponentPool, Profiler, Component,
+    Vec3, CPed, CVehicle, shared, sync, ignore
 };
 
 // --- module registry ---
@@ -58,7 +53,7 @@ function tryLoadModule(resourceName: string, code: string): boolean {
             const origCreateEntity = g_world.createEntity.bind(g_world);
 
             (g_world as any).addSystem    = (s: System) => { record.systems.push(s.constructor as any); origAddSystem(s); };
-            (g_world as any).createEntity = () => { const id = origCreateEntity(); record.entities.push(id); return id; };
+            (g_world as any).createEntity = (...args: any[]) => { const id = origCreateEntity(...args); record.entities.push(id); return id; };
 
             (initFn as Function)(g_world);
 
@@ -111,26 +106,36 @@ function loadModule(resourceName: string): void {
     }
 }
 
-// --- main ---
-
-async function gameLoop(): Promise<void> {
-    let lastTime         = GetGameTimer();
-    let fixedAccumulator = 0.0;
-
+function registerMainSystems() {
     if (GetConvar("sv_debug", "false") === "true") {
         const profiler = new Profiler();
         g_world.setProfiler(profiler);
         g_world.addSystem(new DebugSystem(g_world, profiler));
     }
 
+    g_world.addSystem(new SyncSystem(g_world));
     g_world.addSystem(new EntitySystem(g_world));
+}
 
-    while (true) {
+// --- exports ---
+
+exports("registerModule", (resourceName: string) => loadModule(resourceName));
+
+
+// --- main ---
+
+{
+    registerMainSystems();
+
+    let lastTime  = GetGameTimer();
+    let fixedAccumulator = 0.0;
+
+    setTick(() => {
         const now     = GetGameTimer();
         let deltaTime = (now - lastTime) / 1000.0;
         lastTime      = now;
 
-        deltaTime        = Math.min(deltaTime, k_maxDelta);
+        deltaTime         = Math.min(deltaTime, k_maxDelta);
         fixedAccumulator += deltaTime;
 
         while (fixedAccumulator >= k_fixedTimestep) {
@@ -139,12 +144,5 @@ async function gameLoop(): Promise<void> {
         }
 
         g_world.update(deltaTime);
-        await Delay(0);
-    }
+    });
 }
-
-// --- exports ---
-
-exports("registerModule", (resourceName: string) => loadModule(resourceName));
-
-gameLoop();
