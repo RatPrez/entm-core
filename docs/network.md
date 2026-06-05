@@ -6,6 +6,25 @@ entm-core provides a server-to-client sync system for components. It uses FiveM 
 
 ---
 
+> **Known bug:** Defining a custom constructor on a `@sync` component currently causes a failed build. Use field defaults instead of a constructor. This is being investigated.
+>
+> ```ts
+> // Don't do this on a @sync component
+> @sync('full')
+> class Health extends Component {
+>     current: number;
+>     constructor(max: number) { super(); this.current = max; }
+> }
+>
+> // Do this instead
+> @sync('full')
+> class Health extends Component {
+>     current: number = 100;
+> }
+> ```
+
+---
+
 ## Overview
 
 The sync flow is:
@@ -41,9 +60,8 @@ Clients receive the event and create a local entity, then store the `netId → e
 A component decorated with `@sync('full')` has its fields continuously replicated to clients.
 
 ```ts
-import { Component, shared, sync } from "@ratprez/entm";
+import { Component, sync } from "@ratprez/entm";
 
-@shared
 @sync('full')
 export class Position extends Component {
     x: number = 0;
@@ -71,7 +89,8 @@ Payloads under 1024 bytes are sent via `TriggerClientEvent`. Larger payloads use
 A component decorated with `@sync('life')` syncs only its **presence** — not its field values.
 
 ```ts
-@shared
+import { Component, sync } from "@ratprez/entm";
+
 @sync('life')
 export class IsDead extends Component {}
 ```
@@ -84,40 +103,54 @@ Use this for state flags or lightweight markers where the fields don't matter.
 
 ## `@ignore`
 
-Excludes a field from the sync payload even on a `@sync('full')` component.
+Excludes a field from the sync payload even on a `@sync('full')` component. The field stays server-side only.
 
 ```ts
-@shared
+import { Component, sync, ignore } from "@ratprez/entm";
+
 @sync('full')
 export class PlayerState extends Component {
     health:   number = 100;
     armor:    number = 50;
 
     @ignore
-    serverOnlyFlag: boolean = false; // never sent to clients
+    serverOnlyFlag: boolean = false;
 }
 ```
 
 ---
 
-## `@shared` requirement
+## Components on the client side
 
-Both `@sync` modes require the component to also be `@shared`. The sync system looks up component constructors by name from `globalThis.__entm`. If the component isn't registered there via `@shared`, the sync system won't find it.
+`@sync` registers the component constructor in `globalThis.__entm` on the **server** side only. When the client's `SyncSystem` receives a sync payload, it looks up the component constructor by name from the client's own `globalThis.__entm`. If the constructor isn't there, the sync is silently dropped.
+
+To receive synced data on the client, define a matching component decorated with `@shared` in your client code:
 
 ```ts
-@shared       // required for sync
+// server/components/Health.ts
+import { Component, sync } from "@ratprez/entm";
+
 @sync('full')
 export class Health extends Component {
-    current: number;
-    max:     number;
-
-    constructor(max: number) {
-        super();
-        this.current = max;
-        this.max     = max;
-    }
+    current: number = 100;
+    max:     number = 100;
 }
 ```
+
+```ts
+// client/components/Health.ts
+import { Component, shared } from "@ratprez/entm";
+
+@shared
+export class Health extends Component {
+    current: number = 0;
+    max:     number = 0;
+}
+```
+
+The server component uses `@sync` to mark it for replication. The client component uses `@shared` to register its constructor in the client's global registry, so `SyncSystem` can find and populate it when data arrives.
+
+`@shared` is **side-scoped** — it only registers in the global registry of the side it runs on. A `@shared` component in a server script is invisible to client scripts and vice versa. There is no automatic cross-side sharing.
 
 ---
 
@@ -139,7 +172,7 @@ The `netId` is the server-side entity ID (the integer returned by `createEntity`
 
 ## Network events
 
-These are the internal events used by the sync system. You don't need to handle them manually, but they're useful to know for debugging:
+These are the internal events used by the sync system. You don't need to handle them manually, but they're useful for debugging:
 
 | Event | Direction | Description |
 |---|---|---|
@@ -155,29 +188,22 @@ These are the internal events used by the sync system. You don't need to handle 
 
 **Server:**
 ```ts
-import { Component, shared, sync, ignore, World, System } from "@ratprez/entm";
+import { Component, sync, ignore, World, System } from "@ratprez/entm";
 
-@shared
 @sync('full')
 class Health extends Component {
-    current: number;
-    max:     number;
+    current: number = 100;
+    max:     number = 100;
 
     @ignore
     serverTag: string = "sv";
-
-    constructor(max: number) {
-        super();
-        this.current = max;
-        this.max     = max;
-    }
 }
 
 class SpawnSystem extends System {
     override onStart(): void {
         onNet("playerSpawned", (source: number) => {
             const id = this.m_world.createEntity(true);
-            this.m_world.addComponent(id, new Health(100));
+            this.m_world.addComponent(id, new Health());
         });
     }
 }
@@ -190,22 +216,19 @@ __registerModule((world) => {
 
 **Client:**
 ```ts
-import { System, World, NetEntity } from "@ratprez/entm";
+import { Component, shared, System, World } from "@ratprez/entm";
 
-// Forward declaration — the class comes from the server module
-declare class Health { current: number; max: number; }
+// Client-side version of Health — @shared registers it so SyncSystem can find it
+@shared
+class Health extends Component {
+    current: number = 0;
+    max:     number = 0;
+}
 
 class HudSystem extends System {
     override update(dt: number): void {
-        // The Health class is available via globalThis.__entm at runtime
-        const HealthCtor = (globalThis as any).__entm["health"];
-        if (!HealthCtor) return;
-
-        for (const { entityId } of this.m_world.view(NetEntity)) {
-            const hp = this.m_world.getComponent(entityId, HealthCtor);
-            if (hp) {
-                // render health bar
-            }
+        for (const { entityId, health } of this.m_world.view(Health)) {
+            // render health bar using health.current / health.max
         }
     }
 }

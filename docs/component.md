@@ -1,6 +1,8 @@
 # Component
 
-Components are plain data containers attached to entities. They hold state — no logic, no behaviour. All component classes extend the base `Component` class from `@ratprez/entm`.
+Components are plain data containers attached to entities. They hold state — **no logic, no functions**. All component classes extend the base `Component` class from `@ratprez/entm`.
+
+> The reason components are classes rather than interfaces is that the framework needs a real constructor function at runtime to key component pools and create instances. TypeScript interfaces are erased at compile time and can't serve that role.
 
 > **Package:** [`@ratprez/entm`](https://github.com/RatPrez/entm)
 
@@ -26,29 +28,47 @@ The `sType` getter returns the component's class name with the first letter lowe
 
 ## Creating a component
 
-Extend `Component` and define your fields. Use the constructor to set initial values.
+Extend `Component` and define your fields as class field declarations with default values. Do not add methods — components are pure data.
 
 ```ts
 import { Component } from "@ratprez/entm";
 
 export class Health extends Component {
-    current: number;
-    max:     number;
-
-    constructor(max: number) {
-        super();
-        this.current = max;
-        this.max     = max;
-    }
+    current: number = 100;
+    max:     number = 100;
 }
 ```
 
-That's a complete component. To attach it to an entity:
+To attach it to an entity:
 
 ```ts
 const id = world.createEntity();
-world.addComponent(id, new Health(100));
+world.addComponent(id, new Health());
 ```
+
+If you need to initialize a component with specific values, set them after construction:
+
+```ts
+const hp = world.addComponent(id, new Health());
+hp.current = 50;
+hp.max     = 150;
+```
+
+---
+
+## `import type` vs `import`
+
+When you only reference a class as a **type annotation** — and never call `new` or access static members — always use `import type`:
+
+```ts
+// Good — type-only reference, erased at compile time
+import type { World } from "@ratprez/entm";
+
+// Bad — emits a runtime import even though World is only used as a type
+import { World } from "@ratprez/entm";
+```
+
+Without `import type`, TypeScript may emit the class into the bundle even when it's not needed. Since modules are evaluated inside entm-core's context (via `new Function(code)()`), an unnecessary runtime import can result in a second version of the class being instantiated. The framework identifies component pools by constructor reference — two different constructor functions for the same class name will produce two separate pools and the framework will get confused. `import type` guarantees the import is erased before the bundle is evaluated.
 
 ---
 
@@ -56,54 +76,45 @@ world.addComponent(id, new Health(100));
 
 ### `@shared`
 
-Registers the component class in `globalThis.__entm` so other loaded modules can access it by name without importing your code directly.
+Registers the component class in `globalThis.__entm` under its `sType` name. This allows other loaded modules to access the constructor by name at runtime, without needing to import your code directly.
 
 ```ts
 import { Component, shared } from "@ratprez/entm";
 
 @shared
 export class Health extends Component {
-    current: number;
-    max:     number;
-
-    constructor(max: number) {
-        super();
-        this.current = max;
-        this.max     = max;
-    }
+    current: number = 100;
+    max:     number = 100;
 }
 ```
 
-Without `@shared`, other modules cannot reference your component class at runtime, even if they import the types for TypeScript. You need `@shared` on any component that:
+`@shared` is **side-scoped** — a `@shared` class on the server is only registered in the server's global registry. Client scripts do not see it, and vice versa. If you need a component to be accessible on both sides, define and decorate it on both sides.
 
-- Is accessed from a different module.
-- Uses `@sync` (network sync requires the class to be in the global registry).
+`@shared` does not affect sync behaviour on its own. It just makes the constructor available by name to other modules. See [Network](./network.md) for how sync uses the registry.
 
-### Cross-module forward declarations
+### Cross-module access
 
-TypeScript doesn't know about another module's exported classes at compile time. When you consume a `@shared` component from a different resource, add a forward declaration in your module:
+When another module needs to work with a `@shared` component from your module, they can't import your source directly (different resources). Instead, use a forward declaration to satisfy TypeScript, and rely on the runtime registration for the actual constructor:
 
 ```ts
-// Forward declaration so TypeScript is happy
-// The real class is injected at runtime from module-a
+// Forward declaration — TypeScript is happy, runtime value comes from globalThis.__entm
 declare class Health {
     current: number;
     max:     number;
 }
 ```
 
-The runtime instance comes from `globalThis.__entm["health"]`; the declaration just satisfies the type checker.
+The real class is already registered in the global registry by the time your module runs (assuming load order is correct or the retry queue resolves it).
 
 ---
 
 ### `@sync`
 
-Marks a component for automatic network synchronization between server and clients. Requires `@shared` as well. Takes a mode: `'full'` or `'life'`.
+Marks a component for automatic server-to-client network synchronization. See [Network](./network.md) for full details on both modes (`'full'` and `'life'`), how the sync pipeline works, and current known limitations.
 
 ```ts
-import { Component, shared, sync } from "@ratprez/entm";
+import { Component, sync } from "@ratprez/entm";
 
-@shared
 @sync('full')
 export class Position extends Component {
     x: number = 0;
@@ -112,33 +123,23 @@ export class Position extends Component {
 }
 ```
 
-**`@sync('full')`** — field-level sync. The component is wrapped in a `Proxy` on the server. Every time a field is mutated, the change is queued for broadcast to all clients on the next fixed tick (30 Hz). Use this for components whose fields update regularly.
-
-**`@sync('life')`** — presence sync only. The component is broadcast to clients when it's added to or removed from an entity. The field values are not continuously synced — only the existence of the component matters. Use this for state flags or components that change infrequently.
-
-> Sync only works on **server-side** entities. The entity must also have a `NetEntity` component (i.e. created with `world.createEntity(true)` or via the sync system).
-
 ---
 
 ### `@ignore`
 
-Prevents a specific field from being included in sync payloads. Use it on fields that are server-side only or don't need to be replicated.
+Excludes a specific field from sync payloads. Only relevant when the component uses `@sync('full')`. See [Network](./network.md) for usage.
 
 ```ts
-import { Component, shared, sync, ignore } from "@ratprez/entm";
+import { Component, sync, ignore } from "@ratprez/entm";
 
-@shared
 @sync('full')
-export class PlayerData extends Component {
-    health:   number = 100;
-    armor:    number = 0;
+export class PlayerState extends Component {
+    health: number = 100;
 
     @ignore
-    internalFlag: boolean = false;
+    serverOnlyFlag: boolean = false;
 }
 ```
-
-`internalFlag` will never be sent to clients, even though the component is `@sync('full')`.
 
 ---
 
