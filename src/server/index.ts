@@ -10,7 +10,6 @@ const g_world         = new World();
     World, System, View, ComponentPool, Profiler, Component,
     Vec3, SPed, SVehicle, shared, sync, ignore
 };
-console.log('[entm-core] globalThis.__entm.shared:', typeof (globalThis as any).__entm.shared);
 
 // --- module registry ---
 
@@ -25,8 +24,8 @@ on("onResourceStop", (name: string) => {
     const record = g_modules.get(name);
     if (!record) return;
 
+    for (const id  of record.entities)  g_world.destroyEntity(id); // destroy entities first so systems can do proper cleanup as it's still an internalized script
     for (const ctor of record.systems)  g_world.removeSystem(ctor);
-    for (const id  of record.entities)  g_world.destroyEntity(id);
 
     g_modules.delete(name);
     console.log(`[entm-core] unloaded server module: ${name}`);
