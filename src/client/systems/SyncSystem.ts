@@ -6,11 +6,13 @@ const logger = new Logger("SyncSystem");
 export class SyncSystem extends System {
 // public
     override onStart(): void {
-        onNet("entm-core:cl:entity_create", (netId: number) => this.handleEntityCreate(netId));
-        onNet("entm-core:cl:entity_destroy", (netId: number) => this.handleEntityDestroy(netId));
-        onNet("entm-core:cl:sync", (payload: Record<number, Record<string, Record<string, any>>>) => this.handleSync(payload));
-        onNet("entm-core:cl:sync_remove", (netId: number, componentName: string) => this.handleSyncRemove(netId, componentName));
-        onNet("entm-core:cl:sync_life", (netId: number, componentName: string) => this.handleLifeSync(netId, componentName));
+        onNet("entm-core:cl:entity_create",       (netId: number)                                                         => this.handleEntityCreate(netId));
+        onNet("entm-core:cl:entity_create_batch", (netIds: number[])                                                      => netIds.forEach(id => this.handleEntityCreate(id)));
+        onNet("entm-core:cl:entity_destroy",      (netId: number)                                                         => this.handleEntityDestroy(netId));
+        onNet("entm-core:cl:sync",                (payload: Record<number, Record<string, Record<string, any>>>)          => this.handleSync(payload));
+        onNet("entm-core:cl:sync_remove",         (netId: number, componentName: string)                                  => this.handleSyncRemove(netId, componentName));
+        onNet("entm-core:cl:sync_life",           (netId: number, componentName: string)                                  => this.handleLifeSync(netId, componentName));
+        onNet("entm-core:cl:sync_life_batch",     (payload: Record<number, string[]>)                                     => this.handleLifeSyncBatch(payload));
 
         logger.log('started');
     }
@@ -107,7 +109,21 @@ export class SyncSystem extends System {
         logger.log(`handleSyncRemove | removed ${sType} from entity ${entityId}`);
     }
 
+    private handleLifeSyncBatch(payload: Record<number, string[]>): void {
+        logger.log(`handleLifeSyncBatch | ${Object.keys(payload).length} entity(s)`);
+        for (const [netIdStr, sTypes] of Object.entries(payload)) {
+            const netId = Number(netIdStr);
+            for (const sType of sTypes) {
+                this.handleLifeSync(netId, sType);
+            }
+        }
+    }
+
     private handleEntityCreate(netId: number): void {
+        if (this.m_netIdMap.has(netId)) {
+            logger.log(`handleEntityCreate | netId ${netId} already exists, skipping`);
+            return;
+        }
         logger.log(`handleEntityCreate | netId: ${netId}`);
         const entityId = this.m_world.createEntity();
         this.m_world.addComponent(entityId, new NetEntity(netId));

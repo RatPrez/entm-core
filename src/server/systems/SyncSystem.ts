@@ -7,6 +7,7 @@ const THRESHOLD = 1024;
 export class SyncSystem extends System {
 // public
     override onStart(): void {
+        on("__int_entm::playerLoaded", (source: number) => this.sendWorldState(source));
         logger.log('started');
     }
 
@@ -90,6 +91,48 @@ export class SyncSystem extends System {
     }
 
 // private
+    private sendWorldState(source: number): void {
+        const registry = Object.entries((globalThis as any).__entm ?? {});
+
+        const netIds:      number[] = [];
+        const lifePayload: Record<number, string[]> = {};
+        const fullPayload: Record<number, Record<string, Record<string, any>>> = {};
+
+        for (const { entityId, netEntity } of this.m_world.view(NetEntity)) {
+            netIds.push(netEntity.netId);
+
+            for (const [sType, ctor] of registry) {
+                const c = ctor as any;
+                if (c.sync !== 'full' && c.sync !== 'life') continue;
+
+                const component = this.m_world.getComponent(entityId, c);
+                if (!component) continue;
+
+                if (c.sync === 'life') {
+                    lifePayload[netEntity.netId] ??= [];
+                    lifePayload[netEntity.netId].push(sType);
+                } else {
+                    fullPayload[netEntity.netId] ??= {};
+                    fullPayload[netEntity.netId][sType] ??= {};
+                    for (const key of Object.keys(component)) {
+                        if (c.__ignoreFields?.has(key)) continue;
+                        fullPayload[netEntity.netId][sType][key] = (component as any)[key];
+                    }
+                }
+            }
+        }
+
+        logger.log(`sendWorldState | source: ${source} | ${netIds.length} entities`);
+
+        TriggerClientEvent("entm-core:cl:entity_create_batch", source, netIds);
+
+        if (Object.keys(lifePayload).length > 0)
+            TriggerClientEvent("entm-core:cl:sync_life_batch", source, lifePayload);
+
+        if (Object.keys(fullPayload).length > 0)
+            TriggerClientEvent("entm-core:cl:sync", source, fullPayload);
+    }
+
     private buildPayload(queue: any): any {
         const payload: Record<number, Record<string, Record<string, any>>> = {};
         for (const { entityId, component } of queue) {
