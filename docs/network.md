@@ -39,6 +39,46 @@ Sync is **server → clients** only. There is no client → server data replicat
 
 ---
 
+## Where to define synced components
+
+Put synced components in a `shared/` folder inside your `src/` directory and import them in both your client and server entry points:
+
+```
+src/
+  client/index.ts
+  server/index.ts
+  shared/Health.ts    ← component lives here
+```
+
+esbuild bundles the shared folder into both outputs. This means the decorator runs in both environments from a single definition — the component is registered in `globalThis.__entm` on both sides automatically, and your client `SyncSystem` will be able to find the constructor when sync data arrives.
+
+```ts
+// src/shared/Health.ts
+import { Component, sync } from "@ratprez/entm";
+
+@sync('full')
+export class Health extends Component {
+    current: number = 100;
+    max:     number = 100;
+}
+```
+
+```ts
+// src/server/index.ts
+import { Health } from "../shared/Health";
+// use Health on the server
+```
+
+```ts
+// src/client/index.ts
+import { Health } from "../shared/Health";
+// use Health on the client — constructor is already registered via the decorator
+```
+
+There is no need to define the component twice or add a separate `@shared` just for sync to work.
+
+---
+
 ## Synced entities
 
 On the server, pass `true` to `createEntity` to create a synced entity:
@@ -60,6 +100,7 @@ Clients receive the event and create a local entity, then store the `netId → e
 A component decorated with `@sync('full')` has its fields continuously replicated to clients.
 
 ```ts
+// src/shared/Position.ts
 import { Component, sync } from "@ratprez/entm";
 
 @sync('full')
@@ -89,6 +130,7 @@ Payloads under 1024 bytes are sent via `TriggerClientEvent`. Larger payloads use
 A component decorated with `@sync('life')` syncs only its **presence** — not its field values.
 
 ```ts
+// src/shared/IsDead.ts
 import { Component, sync } from "@ratprez/entm";
 
 @sync('life')
@@ -103,54 +145,20 @@ Use this for state flags or lightweight markers where the fields don't matter.
 
 ## `@ignore`
 
-Excludes a field from the sync payload even on a `@sync('full')` component. The field stays server-side only.
+Excludes a field from the sync payload even on a `@sync('full')` component. The field is still present on both sides (since it comes from the shared definition), but its value is never sent over the network.
 
 ```ts
 import { Component, sync, ignore } from "@ratprez/entm";
 
 @sync('full')
 export class PlayerState extends Component {
-    health:   number = 100;
-    armor:    number = 50;
+    health: number = 100;
+    armor:  number = 50;
 
     @ignore
-    serverOnlyFlag: boolean = false;
+    internalCounter: number = 0;
 }
 ```
-
----
-
-## Components on the client side
-
-`@sync` registers the component constructor in `globalThis.__entm` on the **server** side only. When the client's `SyncSystem` receives a sync payload, it looks up the component constructor by name from the client's own `globalThis.__entm`. If the constructor isn't there, the sync is silently dropped.
-
-To receive synced data on the client, define a matching component decorated with `@shared` in your client code:
-
-```ts
-// server/components/Health.ts
-import { Component, sync } from "@ratprez/entm";
-
-@sync('full')
-export class Health extends Component {
-    current: number = 100;
-    max:     number = 100;
-}
-```
-
-```ts
-// client/components/Health.ts
-import { Component, shared } from "@ratprez/entm";
-
-@shared
-export class Health extends Component {
-    current: number = 0;
-    max:     number = 0;
-}
-```
-
-The server component uses `@sync` to mark it for replication. The client component uses `@shared` to register its constructor in the client's global registry, so `SyncSystem` can find and populate it when data arrives.
-
-`@shared` is **side-scoped** — it only registers in the global registry of the side it runs on. A `@shared` component in a server script is invisible to client scripts and vice versa. There is no automatic cross-side sharing.
 
 ---
 
@@ -186,18 +194,24 @@ These are the internal events used by the sync system. You don't need to handle 
 
 ## Full example
 
-**Server:**
+**`src/shared/Health.ts`**
 ```ts
-import { Component, sync, ignore, World, System } from "@ratprez/entm";
+import { Component, sync, ignore } from "@ratprez/entm";
 
 @sync('full')
-class Health extends Component {
+export class Health extends Component {
     current: number = 100;
     max:     number = 100;
 
     @ignore
-    serverTag: string = "sv";
+    serverCounter: number = 0;
 }
+```
+
+**`src/server/index.ts`**
+```ts
+import { World, System } from "@ratprez/entm";
+import { Health } from "../shared/Health";
 
 class SpawnSystem extends System {
     override onStart(): void {
@@ -214,16 +228,10 @@ __registerModule((world) => {
 });
 ```
 
-**Client:**
+**`src/client/index.ts`**
 ```ts
-import { Component, shared, System, World } from "@ratprez/entm";
-
-// Client-side version of Health — @shared registers it so SyncSystem can find it
-@shared
-class Health extends Component {
-    current: number = 0;
-    max:     number = 0;
-}
+import { World, System } from "@ratprez/entm";
+import { Health } from "../shared/Health";
 
 class HudSystem extends System {
     override update(dt: number): void {
