@@ -7,6 +7,7 @@ const shared = {
     target:   'es2020',
     format:   'cjs',
     logLevel: 'info',
+    keepNames: true
 };
 
 const builds = [
