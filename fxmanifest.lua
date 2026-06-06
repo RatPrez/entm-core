@@ -1,9 +1,9 @@
 fx_version 'cerulean'
 game 'gta5'
 
-author 'entm'
+author 'ratprez'
 description 'Entity Component System for FiveM'
-version '1.0.0'
+version '0.5.0'
 
 server_scripts {
     'dist/server.js'
