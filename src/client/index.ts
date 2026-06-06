@@ -1,4 +1,4 @@
-import { World, System, View, ComponentPool, Profiler, PlayerData, Component, Vec3, CPed, CVehicle, shared, sync, ignore, NetEntity, CfxEntity } from "@ratprez/entm";
+import { World, System, View, ComponentPool, Profiler, PlayerData, Component, Vec3, CPed, CVehicle, shared, sync, ignore, NetEntity, CfxEntity, Logger } from "@ratprez/entm";
 import { EntitySystem } from "./systems/EntitySystem";
 import { DebugSystem }  from "./systems/DebugSystem";
 import { SyncSystem }   from "./systems/SyncSystem";
@@ -16,7 +16,18 @@ const g_world = new World();
     Vec3, PlayerData, NetEntity, CfxEntity,
     // components - client
     CPed, CVehicle,
+    // util
+    Logger,
 };
+
+// --- debug ---
+
+let g_debug = false;
+
+onNet("__int_entm::cl_debug_toggle", (state: boolean) => {
+    g_debug = state;
+    emit("__int_entm::debug_toggle", g_debug);
+});
 
 const g_loader = new ModuleLoader(g_world, "client");
 

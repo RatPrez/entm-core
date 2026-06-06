@@ -1,5 +1,4 @@
-import { type EntityId, System, CfxEntity, CPed, CVehicle } from "@ratprez/entm";
-import { Logger } from "shared/Logger";
+import { type EntityId, System, CfxEntity, CPed, CVehicle, Logger } from "@ratprez/entm";
 
 const Delay  = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
 const logger = new Logger("EntitySystem");

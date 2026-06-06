@@ -6,25 +6,6 @@ entm-core provides a server-to-client sync system for components. It uses FiveM 
 
 ---
 
-> **Known bug:** Defining a custom constructor on a `@sync` component currently causes a failed build. Use field defaults instead of a constructor. This is being investigated.
->
-> ```ts
-> // Don't do this on a @sync component
-> @sync('full')
-> class Health extends Component {
->     current: number;
->     constructor(max: number) { super(); this.current = max; }
-> }
->
-> // Do this instead
-> @sync('full')
-> class Health extends Component {
->     current: number = 100;
-> }
-> ```
-
----
-
 ## Overview
 
 The sync flow is:
@@ -185,10 +166,32 @@ These are the internal events used by the sync system. You don't need to handle 
 | Event | Direction | Description |
 |---|---|---|
 | `entm-core:cl:entity_create` | sv → cl | A new synced entity was created |
+| `entm-core:cl:entity_create_batch` | sv → cl | Batch of existing entities sent to a late joiner |
 | `entm-core:cl:entity_destroy` | sv → cl | A synced entity was destroyed |
 | `entm-core:cl:sync` | sv → cl | Field-level sync payload (full sync) |
 | `entm-core:cl:sync_life` | sv → cl | Component added to a synced entity |
+| `entm-core:cl:sync_life_batch` | sv → cl | Batch of life-synced components sent to a late joiner |
 | `entm-core:cl:sync_remove` | sv → cl | Component removed from a synced entity |
+
+---
+
+## Late joiner sync
+
+When a client connects, the server sends a snapshot of the current world state in three batched events:
+
+1. `entity_create_batch` — all existing net entity IDs.
+2. `sync_life_batch` — all life-synced components on those entities.
+3. `sync` — all full-synced component field values.
+
+This happens automatically. You don't need to handle it in your module.
+
+---
+
+## Client retry queue
+
+If a sync event arrives on the client before the module that owns the component has loaded, the operation is queued per `netId` rather than dropped. Once a module loads, the queue for every pending entity is drained in order. If an entity is destroyed while its queue is pending, the queue is discarded cleanly.
+
+This means load order between modules matters less than you might expect — sync data is never silently lost due to a race at startup or hot-reload.
 
 ---
 

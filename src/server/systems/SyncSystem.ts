@@ -1,5 +1,4 @@
-import { NetEntity, System, EntityId, compareClass, toCamelCase } from "@ratprez/entm";
-import { Logger } from "shared/Logger";
+import { NetEntity, System, EntityId, compareClass, toCamelCase, Logger } from "@ratprez/entm";
 
 const logger = new Logger("SyncSystem");
 const THRESHOLD = 1024;

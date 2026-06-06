@@ -25,8 +25,9 @@ export function startLoop(world: World): void {
 }
 
 type ModuleRecord = {
-    systems:  (new (...args: any[]) => System)[];
-    entities: number[];
+    systems:         (new (...args: any[]) => System)[];
+    entities:        number[];
+    registeredTypes: string[];
 };
 
 type RetryEntry = { resourceName: string; code: string };
@@ -56,8 +57,9 @@ export class ModuleLoader {
         const record = this.m_modules.get(resourceName);
         if (!record) return;
 
-        for (const id   of record.entities) this.m_world.destroyEntity(id);
-        for (const ctor of record.systems)  this.m_world.removeSystem(ctor);
+        for (const id   of record.entities)        this.m_world.destroyEntity(id);
+        for (const ctor of record.systems)          this.m_world.removeSystem(ctor);
+        for (const key  of record.registeredTypes)  delete (globalThis as any).__entm[key];
 
         this.m_modules.delete(resourceName);
         console.log(`[entm-core] unloaded ${this.m_side} module: ${resourceName}`);
@@ -66,29 +68,48 @@ export class ModuleLoader {
 // private
     private tryLoad(resourceName: string, code: string): boolean {
         try {
+            // track which __entm keys this module registers via decorators
+            const registeredTypes: string[] = [];
+            const realEntm = (globalThis as any).__entm;
+            (globalThis as any).__entm = new Proxy(realEntm, {
+                set(target, key, value) {
+                    registeredTypes.push(key as string);
+                    target[key as string] = value;
+                    return true;
+                }
+            });
+
             let initFn: ((world: World) => void) | null = null;
-            (globalThis as any).__registerModule = (fn: (world: World) => void) => { initFn = fn; };
-            new Function(code)();
-            delete (globalThis as any).__registerModule;
+            try {
+                (globalThis as any).__registerModule = (fn: (world: World) => void) => { initFn = fn; };
+                new Function(code)();
+                delete (globalThis as any).__registerModule;
+            } finally {
+                (globalThis as any).__entm = realEntm;
+            }
 
             if (initFn) {
-                const record: ModuleRecord = { systems: [], entities: [] };
+                const record: ModuleRecord = { systems: [], entities: [], registeredTypes };
 
                 const origAddSystem    = this.m_world.addSystem.bind(this.m_world);
                 const origCreateEntity = this.m_world.createEntity.bind(this.m_world);
 
-                (this.m_world as any).addSystem    = (s: System) => { record.systems.push(s.constructor as any); origAddSystem(s); };
-                (this.m_world as any).createEntity = (...args: any[]) => { const id = origCreateEntity(...args); record.entities.push(id); return id; };
+                try {
+                    (this.m_world as any).addSystem    = (s: System) => { record.systems.push(s.constructor as any); origAddSystem(s); };
+                    (this.m_world as any).createEntity = (...args: any[]) => { const id = origCreateEntity(...args); record.entities.push(id); return id; };
 
-                (initFn as Function)(this.m_world);
-
-                (this.m_world as any).addSystem    = origAddSystem;
-                (this.m_world as any).createEntity = origCreateEntity;
+                    (initFn as Function)(this.m_world);
+                } finally {
+                    (this.m_world as any).addSystem    = origAddSystem;
+                    (this.m_world as any).createEntity = origCreateEntity;
+                }
 
                 this.m_modules.set(resourceName, record);
             }
 
             console.log(`[entm-core] loaded ${this.m_side} module: ${resourceName}`);
+            emit("__int_entm::module_loaded");
+
             return true;
         } catch (e) {
             if (e instanceof ReferenceError || e instanceof TypeError) {

@@ -107,6 +107,7 @@ When `registerModule` is called, entm-core does the following:
 On `onResourceStop`:
 - All tracked entities are destroyed via `world.destroyEntity`.
 - All tracked systems are removed via `world.removeSystem`.
+- All component classes the module registered in `globalThis.__entm` via decorators are removed, so a hot-reload re-registers fresh constructors rather than inheriting stale ones.
 
 ### Retry queue
 
@@ -156,11 +157,14 @@ Promise.all([
 
 ## 8. Debug mode
 
-Set the `sv_debug` convar to `"true"` to enable verbose logging from entm-core's internal systems, and to display the frame-time overlay (`DebugSystem`) on the client.
+Run the following command in the server console (or via rcon) to toggle verbose logging across all of entm-core's internal systems on both the server and all connected clients:
 
 ```
-set sv_debug "true"
+entm_debug 1   # enable
+entm_debug 0   # disable
 ```
+
+The command is ace-protected and propagates to clients automatically — no restart required.
 
 ---
 
