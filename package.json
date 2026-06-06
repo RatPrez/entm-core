@@ -10,10 +10,10 @@
     },
     "license": "ISC",
     "devDependencies": {
-        "@ratprez/entm": "^0.4.0",
+        "@ratprez/entm": "^0.5.0",
         "@citizenfx/client": "^2.0.29753-1",
         "@citizenfx/server": "^2.0.29753-1",
-        "@types/node": "^25.9.1",
+        "@types/node": "^25.9.2",
         "cross-env": "^10.1.0",
         "esbuild": "^0.28.0",
         "rimraf": "^6.1.3",
